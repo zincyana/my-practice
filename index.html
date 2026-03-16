@@ -90,7 +90,7 @@
         if (items.length === 0) return;
 
         btn.disabled = true;
-        btn.innerText = "CRYPTO PROCESSING...";
+        btn.innerText = "随机生成中...";
 
         const container = document.getElementById('scroll-container');
         
@@ -121,7 +121,7 @@
 
         setTimeout(() => {
             btn.disabled = false;
-            btn.innerText = "DRAW AGAIN";
+            btn.innerText = "再次抽签";
         }, 5100);
     }
 </script>
