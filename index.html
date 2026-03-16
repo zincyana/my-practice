@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MY PRACTICE</title>
+    <style>
+        :root {
+            --bg: linear-gradient(135deg, #eef9ff 0%, #fef2f2 100%);
+            --blue: #7dd3fc;
+            --pink: #f9a8d4;
+        }
+        body {
+            font-family: sans-serif;
+            background: var(--bg);
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; min-height: 100vh; margin: 0;
+        }
+        .menu-card {
+            background: rgba(255,255,255,0.8); padding: 2rem;
+            border-radius: 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            width: 300px; text-align: center;
+        }
+        h1 { color: var(--blue); font-weight: 300; margin-bottom: 2rem; }
+        .nav-link {
+            display: block;
+            background: white;
+            color: #64748b;
+            text-decoration: none;
+            padding: 1rem;
+            margin: 10px 0;
+            border-radius: 1rem;
+            border: 1px solid var(--blue);
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        .nav-link:hover {
+            background: var(--pink);
+            color: white;
+            border-color: transparent;
+            transform: translateY(-3px);
+        }
+    </style>
+</head>
+<body>
+    <div class="menu-card">
+        <h2> 目 录 </h2>
+        <!-- 这里的 href 填入你实际的文件路径 -->
+        <a class="nav-link" href="practice-01/lottery.html">🌸上上签</a>
+        <a class="nav-link" href="practice-02/dailynote.html">⭐日日是好日</a>
+        <!-- 以后有了新练习，就在这里加一行 -->
+    </div>
+</body>
+</html>
