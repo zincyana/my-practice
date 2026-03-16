@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>结绳记事时间轴</title>
+    <title>日日是好日</title>
     <style>
         :root {
             --bg-color: #f8f9fa;
             --line-color: #ccc;
             --accent-color: #333;
             --text-color: #444;
-            --timeline-left: 25%;
+            --timeline-left: 42%;
         }
 
         body, html {
@@ -20,80 +20,91 @@
             overflow: hidden;
         }
 
-        /* 边缘遮罩 */
         .edge-mask {
-            position: fixed; left: 0; width: 100%; z-index: 10; pointer-events: none;
+            position: fixed; left: 0; width: 100%; z-index: 20; pointer-events: none;
+            opacity: 0; transition: opacity 1.2s ease;
         }
-        .top-mask { top: 0; height: 40vh; background: linear-gradient(to bottom, var(--bg-color) 20%, transparent); }
-        .bottom-mask { bottom: 0; height: 45vh; background: linear-gradient(to top, var(--bg-color) 30%, transparent); }
+        .active-mask { opacity: 1; }
+        .top-mask { top: 0; height: 35vh; background: linear-gradient(to bottom, var(--bg-color) 20%, transparent); }
+        .bottom-mask { bottom: 0; height: 45vh; background: linear-gradient(to top, var(--bg-color) 35%, transparent); }
 
-        /* 容器 */
         #timeline-container {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
             overflow-y: auto;
             scroll-behavior: smooth;
+            z-index: 5;
+            opacity: 0; transition: opacity 1.5s ease;
             -ms-overflow-style: none; scrollbar-width: none;
         }
+        .active-container { opacity: 1 !important; }
         #timeline-container::-webkit-scrollbar { display: none; }
 
-        #timeline-inner {
-            position: relative;
-            width: 100%;
-            padding: 50vh 0; /* 确保首尾都能居中 */
-        }
+        #timeline-inner { position: relative; width: 100%; padding: 50vh 0; }
 
-        /* 动态绳索 */
         #v-line {
-            position: absolute;
-            left: var(--timeline-left);
-            width: 1px;
-            background-color: var(--line-color);
-            z-index: 0;
-            display: none;
-            transition: height 0.5s ease, top 0.5s ease;
+            position: absolute; left: var(--timeline-left);
+            width: 1px; background-color: var(--line-color);
+            z-index: 0; display: none;
         }
 
         .node {
-            display: flex; align-items: center;
+            display: flex; align-items: flex-start; /* 改为顶端对齐，适合长文换行 */
             margin: 100px 0 100px calc(var(--timeline-left) - 5.5px);
-            position: relative; z-index: 1;
+            position: relative; z-index: 10;
         }
 
         .dot {
             width: 12px; height: 12px;
             background-color: var(--accent-color);
             border-radius: 50%; margin-right: 25px;
-            flex-shrink: 0;
-            box-shadow: 0 0 0 5px var(--bg-color);
+            margin-top: 6px; /* 对应文字第一行居中 */
+            flex-shrink: 0; box-shadow: 0 0 0 5px var(--bg-color);
         }
 
-        .content { display: flex; align-items: center; gap: 15px; }
-        .time { font-size: 12px; color: #bbb; font-family: monospace; white-space: nowrap; }
-        .text { color: var(--text-color); font-size: 16px; line-height: 1.6; max-width: 45vw; }
+        .content { 
+            display: flex; flex-direction: column; gap: 6px; 
+            /* 关键修改：限制宽度让其在约30字内换行 */
+            max-width: 320px; 
+        }
 
-        /* 输入区域 */
+        .time { font-size: 11px; color: #bbb; font-family: monospace; }
+        .text { 
+            color: var(--text-color); font-size: 16px; line-height: 1.7; 
+            word-break: break-all; white-space: pre-wrap; 
+        }
+
+        /* 动态输入区域 */
         #input-area {
             position: fixed;
-            bottom: 60px; left: 50%;
-            transform: translateX(-50%);
+            left: 50%; top: 50%;
+            transform: translate(-50%, -50%);
             width: 70%; max-width: 400px;
             z-index: 100;
+            transition: top 0.8s cubic-bezier(0.4, 0, 0.2, 1), transform 0.8s ease;
+        }
+
+        /* 激活状态：位置稍微上调 */
+        #input-area.bottom-fixed {
+            top: calc(100% - 120px); /* 原为 80px，现在上提了 */
+            transform: translate(-50%, 0);
         }
 
         input {
-            width: 100%; padding: 15px 25px;
+            width: 100%; padding: 16px 28px;
             border: 1px solid #eee; border-radius: 40px;
             background: white; font-size: 15px; outline: none;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.05);
             text-align: center;
         }
 
-        /* 右上角工具栏 */
-        #top-bar { position: fixed; top: 20px; right: 30px; z-index: 100; display: flex; gap: 15px; }
-        .btn { background: none; border: none; color: #ddd; font-size: 11px; cursor: pointer; letter-spacing: 1px; transition: 0.3s; }
+        #top-bar { 
+            position: fixed; top: 20px; right: 30px; z-index: 100; 
+            display: flex; gap: 15px; opacity: 0; transition: opacity 1s ease;
+        }
+        .active-ui { opacity: 1 !important; }
+        .btn { background: none; border: none; color: #ddd; font-size: 10px; cursor: pointer; letter-spacing: 1.5px; }
         .btn:hover { color: #333; }
-        .clear-btn:hover { color: #ff4d4f; }
     </style>
 </head>
 <body>
@@ -103,7 +114,7 @@
 
     <div id="top-bar">
         <button class="btn" onclick="exportHistory()">EXPORT导出</button>
-        <button class="btn clear-btn" onclick="clearHistory()">RESET清除</button>
+        <button class="btn" onclick="clearHistory()">RESET清除</button>
     </div>
 
     <div id="timeline-container">
@@ -113,27 +124,34 @@
     </div>
 
     <div id="input-area">
-        <input type="text" id="textInput" placeholder="写下这一刻..." autocomplete="off">
+        <input type="text" id="textInput" placeholder="记录此刻" autocomplete="off">
     </div>
 
     <script>
         const input = document.getElementById('textInput');
+        const inputArea = document.getElementById('input-area');
         const container = document.getElementById('timeline-container');
+        const topBar = document.getElementById('top-bar');
+        const masks = document.querySelectorAll('.edge-mask');
         const inner = document.getElementById('timeline-inner');
         const vLine = document.getElementById('v-line');
-        const STORAGE_KEY = 'timeline_v_final';
+        const STORAGE_KEY = 'timeline_v_final_styled';
 
         window.onload = () => {
             const history = getHistory();
             if (history.length > 0) {
+                activateUI(true); 
                 history.forEach(item => renderNode(item.text, item.time));
                 updateLine();
-                setTimeout(() => scrollToNode(inner.lastElementChild), 200);
+                setTimeout(() => scrollToNode(inner.lastElementChild), 300);
             }
         };
 
+        input.addEventListener('focus', () => activateUI(false));
+
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && input.value.trim() !== "") {
+                activateUI(false);
                 const text = input.value.trim();
                 const now = new Date();
                 const timeStr = `${now.getFullYear()}.${now.getMonth()+1}.${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
@@ -143,9 +161,18 @@
                 updateLine();
                 
                 input.value = "";
-                scrollToNode(newNode);
+                setTimeout(() => scrollToNode(newNode), 50);
             }
         });
+
+        function activateUI(immediate) {
+            inputArea.classList.add('bottom-fixed');
+            setTimeout(() => {
+                container.classList.add('active-container');
+                topBar.classList.add('active-ui');
+                masks.forEach(m => m.classList.add('active-mask'));
+            }, immediate ? 0 : 300);
+        }
 
         function getHistory() {
             return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
@@ -154,6 +181,7 @@
         function renderNode(text, time) {
             const node = document.createElement('div');
             node.className = 'node';
+            // 将时间放在文字上方，配合窄版换行更美观
             node.innerHTML = `
                 <div class="dot"></div>
                 <div class="content">
@@ -169,12 +197,10 @@
             const nodes = document.querySelectorAll('.node');
             if (nodes.length >= 2) {
                 vLine.style.display = 'block';
-                const firstDotTop = nodes[0].offsetTop + 6;
-                const lastDotTop = nodes[nodes.length - 1].offsetTop + 6;
+                const firstDotTop = nodes[0].offsetTop + 12; // 调整为圆心
+                const lastDotTop = nodes[nodes.length - 1].offsetTop + 12;
                 vLine.style.top = firstDotTop + 'px';
                 vLine.style.height = (lastDotTop - firstDotTop) + 'px';
-            } else {
-                vLine.style.display = 'none';
             }
         }
 
@@ -192,20 +218,17 @@
 
         function exportHistory() {
             const history = getHistory();
-            if (history.length === 0) return alert("暂无记录可导出");
-            
+            if (history.length === 0) return;
             const content = history.map(item => `[${item.time}] ${item.text}`).join('\n');
             const blob = new Blob([content], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
-            a.download = `timeline_export_${new Date().getTime()}.txt`;
+            a.href = URL.createObjectURL(blob);
+            a.download = `my_moments.txt`;
             a.click();
-            URL.revokeObjectURL(url);
         }
 
         function clearHistory() {
-            if (confirm("确定要永久抹掉所有记录吗？建议清空前先执行 EXPORT。")) {
+            if (confirm("RESET ALL?")) {
                 localStorage.removeItem(STORAGE_KEY);
                 location.reload();
             }
