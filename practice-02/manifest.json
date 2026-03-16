@@ -12,5 +12,6 @@
   "start_url": "dailynote.html",
   "background_color": "#f8f9fa",
   "display": "standalone",
+  "orientation": "portrait",
   "theme_color": "#f8f9fa"
 }
