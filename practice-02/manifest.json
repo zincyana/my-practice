@@ -1,6 +1,7 @@
 {
   "short_name": "时间轴",
   "name": "时间轴",
+  "scope": "./",
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com",
@@ -13,3 +14,4 @@
   "display": "standalone",
   "theme_color": "#f8f9fa"
 }
+s
