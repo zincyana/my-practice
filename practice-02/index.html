@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>云端时间轴</title>
+    <!-- 1. 先加载 SDK -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --bg-color: #f8f9fa; --line-color: #ccc; --accent-color: #333; --text-color: #444; --timeline-left: 35%; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: "PingFang SC", sans-serif; background-color: var(--bg-color); overflow: hidden; }
+        * { box-sizing: border-box; }
+        #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-color); z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.8s ease; }
+        .auth-card { width: 85%; max-width: 350px; text-align: center; }
+        .auth-card input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #eee; border-radius: 8px; outline: none; }
+        .auth-btn { width: 100%; padding: 12px; background: var(--accent-color); color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; }
+        .switch-auth { font-size: 12px; color: #999; margin-top: 15px; cursor: pointer; text-decoration: underline; }
+        .edge-mask { position: fixed; left: 0; width: 100%; z-index: 20; pointer-events: none; opacity: 0; transition: opacity 1.2s ease; }
+        .active-mask { opacity: 1; }
+        .top-mask { top: 0; height: 35vh; background: linear-gradient(to bottom, var(--bg-color) 20%, transparent); }
+        .bottom-mask { bottom: 0; height: 45vh; background: linear-gradient(to top, var(--bg-color) 35%, transparent); }
+        #timeline-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow-y: auto; scroll-behavior: smooth; z-index: 5; opacity: 0; transition: opacity 1.5s ease; scrollbar-width: none; }
+        #timeline-container::-webkit-scrollbar { display: none; }
+        .active-container { opacity: 1 !important; }
+        #timeline-inner { position: relative; width: 100%; padding: 50vh 0; }
+        #v-line { position: absolute; left: var(--timeline-left); width: 1px; background-color: var(--line-color); z-index: 0; display: none; }
+        .node { display: flex; align-items: flex-start; margin: 100px 0 100px calc(var(--timeline-left) - 5.5px); position: relative; z-index: 10; }
+        .dot { width: 12px; height: 12px; background-color: var(--accent-color); border-radius: 50%; margin-right: 25px; margin-top: 6px; flex-shrink: 0; box-shadow: 0 0 0 5px var(--bg-color); }
+        .content { display: flex; flex-direction: column; gap: 6px; max-width: 320px; }
+        .time { font-size: 11px; color: #bbb; font-family: monospace; }
+        .text { color: var(--text-color); font-size: 16px; line-height: 1.7; word-break: break-all; white-space: pre-wrap; }
+        #input-area { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; z-index: 100; transition: top 0.8s cubic-bezier(0.4, 0, 0.2, 1), transform 0.8s ease; display: none; }
+        #input-area.bottom-fixed { top: calc(100% - 120px); transform: translate(-50%, 0); }
+        #main-input { width: 100%; padding: 16px 28px; border: 1px solid #eee; border-radius: 40px; background: white; font-size: 15px; outline: none; box-shadow: 0 10px 40px rgba(0,0,0,0.04); text-align: center; }
+        #top-bar { position: fixed; top: 20px; right: 30px; z-index: 100; display: flex; gap: 15px; opacity: 0; transition: opacity 1s ease; }
+        .active-ui { opacity: 1 !important; }
+        .btn { background: none; border: none; color: #ddd; font-size: 10px; cursor: pointer; letter-spacing: 1.5px; }
+        @media (max-width: 768px) { :root { --timeline-left: 15%; } .text { max-width: 70vw; } }
+    </style>
+</head>
+<body>
+
+    <!-- 登录界面 -->
+    <div id="auth-overlay">
+        <div class="auth-card">
+            <h2 id="auth-title">登 录</h2>
+            <input type="email" id="email" placeholder="邮箱" autocomplete="email">
+            <input type="password" id="password" placeholder="密码">
+            <button class="auth-btn" id="auth-submit">进入时间轴</button>
+            <div class="switch-auth" id="auth-switch">没有账号？点击注册</div>
+        </div>
+    </div>
+
+    <div class="edge-mask top-mask"></div>
+    <div class="edge-mask bottom-mask"></div>
+
+    <div id="top-bar">
+        <button class="btn" id="export-btn">EXPORT</button>
+        <button class="btn" id="logout-btn" style="color:#eee">LOGOUT</button>
+    </div>
+
+    <div id="timeline-container">
+        <div id="timeline-inner">
+            <div id="v-line"></div>
+        </div>
+    </div>
+
+    <div id="input-area">
+        <input type="text" id="main-input" placeholder="记录此刻..." autocomplete="off">
+    </div>
+
+    <script>
+        // 1. 初始化 (加上判断，防止报错)
+        const SUPABASE_URL = 'https://zbatqnjozwjbwqlgnobq.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_E59QjRz_BMkIzzIUgRZ29A_4PPKWtvY';
+       
+        let isSignUp = false; // 确保这行在外面！
+        let currentUser = null;
+
+        let supabaseClient;
+
+        // 使用函数来初始化，确保万无一失
+        function initSupabase() {
+            if (typeof supabase !== 'undefined') {
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                console.log("Supabase 初始化成功");
+            } else {
+                console.error("Supabase 库加载失败，请检查网络或更换 CDN");
+                alert("网络连接不稳定，请刷新页面重试");
+            }
+        }
+        initSupabase(); // 执行初始化
+
+        // 2. 函数定义
+        function toggleAuthMode() {
+            isSignUp = !isSignUp;
+            document.getElementById('auth-title').innerText = isSignUp ? "注 册" : "登 录";
+            document.getElementById('auth-submit').innerText = isSignUp ? "立即注册" : "进入时间轴";
+            document.getElementById('auth-switch').innerText = isSignUp ? "已有账号？返回登录" : "没有账号？点击注册";
+        }
+
+        async function handleAuth() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            if (!email || !password) return alert("请填写完整信息");
+
+            const { data, error } = isSignUp 
+                ? await supabaseClient.auth.signUp({ email, password })
+                : await supabaseClient.auth.signInWithPassword({ email, password });
+
+            if (error) alert(error.message);
+            else if (isSignUp) alert("注册申请已发送，请检查邮箱（或尝试直接登录）");
+        }
+
+        async function loadCloudData() {
+            activateUI(true);
+            const { data, error } = await supabaseClient
+                .from('notes')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (data) {
+                const inner = document.getElementById('timeline-inner');
+                // 清空但不删线
+                const oldNodes = inner.querySelectorAll('.node');
+                oldNodes.forEach(n => n.remove());
+                
+                data.forEach(item => renderNode(item.content, item.display_time));
+                updateLine();
+                setTimeout(() => scrollToNode(inner.lastElementChild), 300);
+            }
+        }
+
+        function renderNode(text, time) {
+            const node = document.createElement('div');
+            node.className = 'node';
+            node.innerHTML = `<div class="dot"></div><div class="content"><span class="time">${time}</span><span class="text">${text}</span></div>`;
+            document.getElementById('timeline-inner').appendChild(node);
+            return node;
+        }
+
+        function updateLine() {
+            const nodes = document.querySelectorAll('.node');
+            const vLine = document.getElementById('v-line');
+            if (nodes.length >= 2) {
+                vLine.style.display = 'block';
+                const first = nodes[0].offsetTop + 12;
+                const last = nodes[nodes.length - 1].offsetTop + 12;
+                vLine.style.top = first + 'px';
+                vLine.style.height = (last - first) + 'px';
+            }
+        }
+
+        function scrollToNode(node) {
+            const container = document.getElementById('timeline-container');
+            if (!node || !container) return;
+            const offset = node.offsetTop - (container.clientHeight / 2) + (node.clientHeight / 2);
+            container.scrollTo({ top: offset, behavior: 'smooth' });
+        }
+
+        function activateUI(immediate) {
+            const inputArea = document.getElementById('input-area');
+            inputArea.style.display = 'block';
+            inputArea.classList.add('bottom-fixed');
+            setTimeout(() => {
+                document.getElementById('timeline-container').classList.add('active-container');
+                document.getElementById('top-bar').classList.add('active-ui');
+                document.querySelectorAll('.edge-mask').forEach(m => m.classList.add('active-mask'));
+            }, immediate ? 0 : 300);
+        }
+
+        // 3. 事件监听绑定 (比 HTML inline onclick 更稳)
+        window.onload = () => {
+            document.getElementById('auth-switch').onclick = toggleAuthMode;
+            document.getElementById('auth-submit').onclick = handleAuth;
+            document.getElementById('logout-btn').onclick = async () => {
+                await supabaseClient.auth.signOut();
+                location.reload();
+            };
+            document.getElementById('export-btn').onclick = async () => {
+                const { data } = await supabaseClient.from('notes').select('*').order('created_at', { ascending: true });
+                const content = data.map(item => `[${item.display_time}] ${item.content}`).join('\n');
+                const blob = new Blob([content], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `timeline_cloud.txt`;
+                a.click();
+            };
+
+            document.getElementById('main-input').onkeypress = async (e) => {
+                if (e.key === 'Enter' && e.target.value.trim() !== "") {
+                    const text = e.target.value.trim();
+                    const now = new Date();
+                    const timeStr = `${now.getFullYear()}.${now.getMonth()+1}.${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
+                    
+                    const { error } = await supabaseClient.from('notes').insert([
+                        { content: text, display_time: timeStr, user_id: currentUser.id }
+                    ]);
+                    if (!error) {
+                        const newNode = renderNode(text, timeStr);
+                        updateLine();
+                        e.target.value = "";
+                        scrollToNode(newNode);
+                    }
+                }
+            };
+
+            // 监听登录状态
+            supabaseClient.auth.onAuthStateChange((event, session) => {
+                // 只要是登录成功（SIGNED_IN）或者已经登录（INITIAL_SESSION）
+                if (session) {
+                    // 这里的 'timeline.html' 换成你那个“真页面”的文件名
+                    window.location.href = './dailynote.html'; 
+                }
+            });
+        };
+    </script>
+</body>
+</html>

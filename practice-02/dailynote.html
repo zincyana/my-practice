@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>日日是好日</title>
     <link rel="manifest" href="manifest.json">
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
         * { 
         box-sizing: border-box; 
@@ -140,8 +141,9 @@
     <div class="edge-mask bottom-mask"></div>
 
     <div id="top-bar">
-        <button class="btn" onclick="exportHistory()">EXPORT导出</button>
-        <button class="btn" onclick="clearHistory()">RESET清除</button>
+        <button class="btn" id="export-btn">EXPORT</button>
+        <button class="btn" id="reset-btn" style="color:#ff4d4f">RESET</button>
+        <button class="btn" id="logout-btn">LOGOUT</button>
     </div>
 
     <div id="timeline-container">
@@ -151,119 +153,288 @@
     </div>
 
     <div id="input-area">
-        <input type="text" id="textInput" placeholder="记录此刻" autocomplete="no-thanks" autocorrect="off" autocapitalize="off" 
-    spellcheck="false" name="my-unique-note-input">
+        <input type="text" 
+    id="main-input" 
+    placeholder="记录此刻..." 
+    autocomplete="one-time-code" 
+    autocorrect="off" 
+    autocapitalize="off" 
+    spellcheck="false"
+    name="my_private_note_v2">
     </div>
 
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
-        }
-        const input = document.getElementById('textInput');
-        const inputArea = document.getElementById('input-area');
-        const container = document.getElementById('timeline-container');
-        const topBar = document.getElementById('top-bar');
-        const masks = document.querySelectorAll('.edge-mask');
-        const inner = document.getElementById('timeline-inner');
-        const vLine = document.getElementById('v-line');
-        const STORAGE_KEY = 'timeline_v_final_styled';
+                // --- 1. 核心初始化 (必须在最顶部) ---
+        const SUPABASE_URL = 'https://zbatqnjozwjbwqlgnobq.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_E59QjRz_BMkIzzIUgRZ29A_4PPKWtvY';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        window.onload = () => {
-            const history = getHistory();
-            if (history.length > 0) {
-                activateUI(true); 
-                history.forEach(item => renderNode(item.text, item.time));
-                updateLine();
-                setTimeout(() => scrollToNode(inner.lastElementChild), 300);
+        let currentUser = null;
+        let inner = null;
+        // --- 2. 页面加载主逻辑 ---
+        window.onload = async () => {
+            console.log("正在初始化页面...");
+
+            // A. 检查登录状态
+            const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+            
+            if (authError || !user) {
+                console.log("未登录，回退到首页");
+                window.location.href = './index.html';
+                return;
+            }
+            
+            currentUser = user;
+            console.log("当前登录用户:", currentUser.email);
+        // 确保获取的是你 HTML 里的输入框 ID，如果你的 ID 是 textInput，请改成 textInput
+        const mainInput = document.getElementById('main-input'); 
+
+        if (mainInput) {
+            mainInput.onkeypress = async (e) => {
+                if (e.key === 'Enter' && e.target.value.trim() !== "") {
+                    console.log("检测到回车，正在发送...");
+                    const text = e.target.value.trim();
+                    const now = new Date();
+                    const timeStr = `${now.getFullYear()}.${now.getMonth()+1}.${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
+                    
+                    // 1. 发送到云端
+                    const { error } = await supabaseClient.from('notes').insert([
+                        { content: text, display_time: timeStr, user_id: currentUser.id }
+                    ]);
+
+                    if (error) {
+                        console.error("同步失败:", error.message);
+                        alert("发送失败，请检查网络");
+                    } else {
+                        console.log("云端同步成功");
+                        // 2. 渲染到页面
+                        const newNode = renderNode(text, timeStr);
+                        updateLine();
+                        // 3. 清空并滚动
+                        e.target.value = "";
+                        setTimeout(() => scrollToNode(newNode), 50);
+                    }
+                }
+            };
+        } else {
+            console.error("找不到输入框元素，请检查 HTML 中的 id 是否为 main-input");
+        }
+            // B. 加载云端数据
+            loadCloudData();
+
+            // C. 绑定所有按钮事件 (确保 ID 匹配)
+            
+            // 导出按钮
+            const exportBtn = document.getElementById('export-btn');
+            if (exportBtn) exportBtn.onclick = exportHistory;
+
+            // 登出按钮
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                logoutBtn.onclick = async () => {
+                    console.log("正在执行登出...");
+                    await supabaseClient.auth.signOut();
+                    window.location.href = './index.html';
+                };
+            }
+
+            // 清除按钮 (假设你的 ID 是 reset-btn)
+            const resetBtn = document.getElementById('reset-btn');
+            if (resetBtn) {
+                resetBtn.onclick = clearCloudHistory;
             }
         };
 
-        input.addEventListener('focus', () => activateUI(false));
+        // --- 3. 功能函数定义 ---
 
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && input.value.trim() !== "") {
-                activateUI(false);
-                const text = input.value.trim();
-                const now = new Date();
-                const timeStr = `${now.getFullYear()}.${now.getMonth()+1}.${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
-                
-                saveData(text, timeStr);
-                const newNode = renderNode(text, timeStr);
+        async function loadCloudData() {
+            const { data, error } = await supabaseClient
+                .from('notes')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (error) {
+                console.error("加载失败:", error.message);
+                return;
+            }
+
+            const inner = document.getElementById('timeline-inner');
+            // 清空现有节点
+            inner.querySelectorAll('.node').forEach(n => n.remove());
+            
+            if (data && data.length > 0) {
+                data.forEach(item => renderNode(item.content, item.display_time));
                 updateLine();
-                
-                input.value = "";
-                setTimeout(() => scrollToNode(newNode), 50);
-            }
-        });
-
-        function activateUI(immediate) {
-            inputArea.classList.add('bottom-fixed');
-            setTimeout(() => {
-                container.classList.add('active-container');
-                topBar.classList.add('active-ui');
-                masks.forEach(m => m.classList.add('active-mask'));
-            }, immediate ? 0 : 300);
-        }
-
-        function getHistory() {
-            return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-        }
-
-        function renderNode(text, time) {
-            const node = document.createElement('div');
-            node.className = 'node';
-            // 将时间放在文字上方，配合窄版换行更美观
-            node.innerHTML = `
-                <div class="dot"></div>
-                <div class="content">
-                    <span class="time">${time}</span>
-                    <span class="text">${text}</span>
-                </div>
-            `;
-            inner.appendChild(node);
-            return node;
-        }
-
-        function updateLine() {
-            const nodes = document.querySelectorAll('.node');
-            if (nodes.length >= 2) {
-                vLine.style.display = 'block';
-                const firstDotTop = nodes[0].offsetTop + 12; // 调整为圆心
-                const lastDotTop = nodes[nodes.length - 1].offsetTop + 12;
-                vLine.style.top = firstDotTop + 'px';
-                vLine.style.height = (lastDotTop - firstDotTop) + 'px';
+                setTimeout(() => scrollToNode(inner.lastElementChild), 300);
             }
         }
 
-        function scrollToNode(node) {
-            if (!node) return;
-            const offset = node.offsetTop - (container.clientHeight / 2) + (node.clientHeight / 2);
-            container.scrollTo({ top: offset, behavior: 'smooth' });
-        }
+        async function clearCloudHistory() {
+            if (!confirm("确定要永久抹掉云端记录吗？")) return;
+            
+            console.log("开始清除数据...");
+            const { error } = await supabaseClient
+                .from('notes')
+                .delete()
+                .eq('user_id', currentUser.id);
 
-        function saveData(text, time) {
-            const history = getHistory();
-            history.push({ text, time });
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-        }
-
-        function exportHistory() {
-            const history = getHistory();
-            if (history.length === 0) return;
-            const content = history.map(item => `[${item.time}] ${item.text}`).join('\n');
-            const blob = new Blob([content], { type: 'text/plain' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `my_moments.txt`;
-            a.click();
-        }
-
-        function clearHistory() {
-            if (confirm("RESET ALL?")) {
-                localStorage.removeItem(STORAGE_KEY);
+            if (error) {
+                alert("删除失败：" + error.message);
+                console.error(error);
+            } else {
+                alert("清理完成");
                 location.reload();
             }
         }
+
+        async function exportHistory() {
+            console.log("正在导出数据...");
+            const { data, error } = await supabaseClient
+                .from('notes')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (error || !data) return alert("导出失败");
+
+            const content = data.map(item => `[${item.display_time}] ${item.content}`).join('\n');
+            const blob = new Blob([content], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `my_notes_${new Date().getTime()}.txt`;
+            a.click();
+        }
+
+        // 注意：renderNode, updateLine, scrollToNode 函数保持你之前的代码即可
+
+        // 这个函数负责把所有隐藏的 UI “放出来”
+        function activateUI() {
+            console.log("正在激活 UI...");
+            const inputArea = document.getElementById('input-area');
+            const container = document.getElementById('timeline-container');
+            const topBar = document.getElementById('top-bar');
+            const masks = document.querySelectorAll('.edge-mask');
+
+            // 1. 显示输入框并执行下滑动画
+            if (inputArea) {
+                inputArea.style.display = 'block';
+                // 稍微延迟一点点触发动画，效果更顺滑
+                setTimeout(() => inputArea.classList.add('bottom-fixed'), 50);
+            }
+
+            // 2. 显示时间轴和顶部按钮
+            if (container) container.classList.add('active-container');
+            if (topBar) topBar.classList.add('active-ui');
+            
+            // 3. 显示边缘遮罩
+            masks.forEach(m => m.classList.add('active-mask'));
+        }
+
+        // 修改你的 loadCloudData 结尾
+        async function loadCloudData() {
+            const { data, error } = await supabaseClient
+                .from('notes')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (data) {
+                const inner = document.getElementById('timeline-inner');
+                inner.querySelectorAll('.node').forEach(n => n.remove());
+                data.forEach(item => renderNode(item.content, item.display_time));
+                updateLine();
+                
+                // --- 核心修改：数据加载完，立刻开门 ---
+                activateUI(); 
+                
+                setTimeout(() => scrollToNode(inner.lastElementChild), 300);
+            }
+        }
+
+       function renderNode(text, time) {
+        // 1. 必须先定义，才能在下面使用 appendChild
+        const innerContainer = document.getElementById('timeline-inner');
+        
+        // 检查是否真的抓到了这个元素
+        if (!innerContainer) {
+            console.error("错误：找不到 ID 为 timeline-inner 的容器！");
+            return null;
+        }
+
+        // 2. 创建节点
+        const node = document.createElement('div');
+        node.className = 'node';
+        node.innerHTML = `
+            <div class="dot"></div>
+            <div class="content">
+                <span class="time">${time}</span>
+                <span class="text">${text}</span>
+            </div>
+        `;
+    
+                // 3. 将节点加入容器
+                innerContainer.appendChild(node);
+                
+                return node;
+            }
+        function scrollToNode(node) {
+            const container = document.getElementById('timeline-container');
+            if (!node || !container) return;
+            
+            // 计算节点相对于容器顶部的偏移量，减去容器高度的一半，实现垂直居中
+            const offset = node.offsetTop - (container.clientHeight / 2) + (node.clientHeight / 2);
+            
+            container.scrollTo({ 
+                top: offset, 
+                behavior: 'smooth' 
+            });
+        }
+        function updateLine() {
+    // 1. 实时获取节点和绳子元素
+    const nodes = document.querySelectorAll('.node');
+    const vLineElement = document.getElementById('v-line');
+    
+    // 如果找不到绳子元素，直接退出防止报错
+    if (!vLineElement) return;
+
+    // 2. 只有当节点超过 2 个时才显示绳子
+    if (nodes.length >= 2) {
+        vLineElement.style.display = 'block';
+        
+        // 计算第一个点中心到最后一个点中心的距离
+        // 这里的 12 是圆点直径，6 是半径，加上偏移量确保对齐
+        const firstDotTop = nodes[0].offsetTop + 12; 
+        const lastDotTop = nodes[nodes.length - 1].offsetTop + 12;
+        
+        vLineElement.style.top = firstDotTop + 'px';
+        vLineElement.style.height = (lastDotTop - firstDotTop) + 'px';
+    } else {
+        // 只有一个点或没点时隐藏绳子
+        vLineElement.style.display = 'none';
+    }
+}
+
+        
+
+       function scrollToNode(node) {
+    // 1. 核心修复：直接在函数内部定义 container 变量
+    const containerElement = document.getElementById('timeline-container');
+    
+    // 如果找不到容器或者没有传入节点，直接返回
+    if (!node || !containerElement) {
+        console.warn("无法滚动：找不到节点或容器");
+        return;
+    }
+    
+    // 2. 计算居中偏移量
+    // 计算节点相对于容器顶部的距离，减去容器高度的一半，再加节点高度的一半，实现垂直居中
+    const offset = node.offsetTop - (containerElement.clientHeight / 2) + (node.clientHeight / 2);
+    
+    // 3. 执行平滑滚动
+    containerElement.scrollTo({ 
+        top: offset, 
+        behavior: 'smooth' 
+    });
+}
+
     </script>
 </body>
 </html>
