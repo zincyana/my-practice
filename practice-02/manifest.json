@@ -1,10 +1,10 @@
 {
-  "short_name": "时间轴",
-  "name": "时间轴",
+  "short_name": "Momentum",
+  "name": "Momentum时空结",
   "scope": "./",
   "icons": [
     {
-      "src": "icon.png",
+      "src": "new-icon.png",
       "type": "image/png",
       "sizes": "512x512"
     }
