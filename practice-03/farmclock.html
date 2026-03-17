@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>快速时间记录</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; max-width: 500px; margin: 20px auto; background: #f9f9f9; }
+        .dashboard { background: #333; color: #fff; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+        #currentTime { font-size: 2em; display: block; color: #00ff00; }
+        .highlight { color: #ffeb3b; font-size: 1.2em; margin-top: 10px; }
+        
+        input { width: 100%; padding: 15px; font-size: 1.2em; border: 2px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        
+        .list-container { margin-top: 20px; background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .record-item { padding: 10px; border-bottom: 1px solid #eee; font-size: 1.1em; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <span id="currentTime">00:00:00</span>
+        <div id="nextFocus" class="highlight">等待输入...</div>
+    </div>
+
+    <!-- 唯一输入框 -->
+    <input type="text" id="mainInput" placeholder="格式：张三 0210 (按回车提交)" autofocus>
+
+    <div class="list-container">
+        <strong>待办列表：</strong>
+        <div id="recordList"></div>
+    </div>
+
+    <script>
+        let tasks = [];
+        const inputEl = document.getElementById('mainInput');
+
+        // 核心逻辑：每秒刷新一次
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('currentTime').innerText = now.toLocaleTimeString('zh-CN', {hour12: false});
+            
+            // 自动清理过期任务
+            const oldLength = tasks.length;
+            tasks = tasks.filter(t => t.endTime > now);
+            
+            if (tasks.length !== oldLength) updateDisplay();
+            else updateFocus(); // 仅刷新倒计时或重点提示
+        }, 1000);
+
+        // 监听回车键
+        inputEl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const val = inputEl.value.trim();
+                const parts = val.split(/\s+/); // 按空格拆分
+                
+                if (parts.length < 2 || parts[1].length !== 4) {
+                    alert("格式错误！请按照 '人名 0210' 格式输入");
+                    return;
+                }
+
+                const name = parts[0];
+                const hours = parseInt(parts[1].substring(0, 2));
+                const mins = parseInt(parts[1].substring(2, 4));
+
+                if (isNaN(hours) || isNaN(mins)) return alert("时间格式必须是数字");
+
+                // 计算结束时间
+                const endTime = new Date();
+                endTime.setHours(endTime.getHours() + hours);
+                endTime.setMinutes(endTime.getMinutes() + mins);
+
+                tasks.push({ name, endTime });
+                tasks.sort((a, b) => a.endTime - b.endTime); // 按时间排序
+
+                inputEl.value = ""; // 清空输入框
+                updateDisplay();
+            }
+        });
+
+        function updateDisplay() {
+            const listDiv = document.getElementById('recordList');
+            listDiv.innerHTML = tasks.map(t => 
+                `<div class="record-item">📌 ${t.name} - ${t.endTime.toLocaleTimeString('zh-CN', {hour12: false})}</div>`
+            ).join('');
+            updateFocus();
+        }
+
+        function updateFocus() {
+            const focusDiv = document.getElementById('nextFocus');
+            if (tasks.length > 0) {
+                const next = tasks[0];
+                focusDiv.innerHTML = `最近：${next.name} (${next.endTime.toLocaleTimeString('zh-CN', {hour12: false})})`;
+            } else {
+                focusDiv.innerText = "暂无任务";
+            }
+        }
+    </script>
+</body>
+</html>
